@@ -1,0 +1,6 @@
+development:
+  money_dsl_top: # fill this in with the path to your financial data
+
+production:
+  money_dsl_top: # fill this in with the path to your financial data
+

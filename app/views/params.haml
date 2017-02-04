@@ -1,0 +1,15 @@
+.row
+  .col-xs-12
+    %form.form{action: url(request.path_info), method: 'get'}
+      .form-group
+        %label{for: 'start_date'} Start date
+        %input#start_date.form-control{type: 'text', name: 'start_date', value: session[:start_date]}
+      .form-group
+        %label{for: 'end_date'} End date
+        %input#end_date.form-control{type: 'text', name: 'end_date', value: session[:end_date]}
+      .form-group
+        %label{for: 'account_filter'} Account Filter
+        %input#end_date.form-control{type: 'text', name: 'account_filter', value: session[:account_filter]}
+
+      %button.btn.btn-default{type: 'submit'} Set
+

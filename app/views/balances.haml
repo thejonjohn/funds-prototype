@@ -1,0 +1,57 @@
+=haml :params
+.row
+  .col-xs-2
+  .col-xs-8
+    %h1 Balances
+    %table.table.table-striped
+      %thead
+        %tr
+          %th Account
+          %th.right Balance
+          %th.right Inclusive Balance
+          %th.right Inclusive Available Balance
+          %th.right Promised Balance
+          %th.right Available Balance
+      %tbody
+        -@funds_info[:accounts].each do |account|
+          - account_filter = session[:account_filter] && !session[:account_filter].empty? ? session[:account_filter] : nil
+          - next if account_filter && !account.full_name.start_with?(account_filter)
+
+          -unless @funds_info[:balances][account].zero? && @funds_info[:promised_balances][account].zero?
+            %tr
+              %td= account.full_name
+              %td.right= @funds_info[:balances][account].to_s(',')
+              -if !account.leaf?
+                %td.right= @funds_info[:inclusive_balances][account].to_s(',')
+                %td.right= (@funds_info[:inclusive_balances][account]-@funds_info[:inclusive_promised_balances][account]).to_s(',')
+              -else
+                %td &nbsp;
+                %td &nbsp;
+              %td.right= @funds_info[:promised_balances][account].to_s(',')
+              %td.right= (@funds_info[:balances][account]-@funds_info[:promised_balances][account]).to_s(',')
+
+          
+          -#-if !account.leaf?
+          -#  %tr
+          -#    %td= account.full_name + " (Inclusive)"
+          -#    %td.right= @funds_info[:inclusive_balances][account].to_s(',')
+          -#  -if !@funds_info[:inclusive_promised_balances][account].zero?
+          -#    %tr
+          -#      %td= account.full_name + ":Promised (Inclusive)"
+          -#      %td.right= @funds_info[:inclusive_promised_balances][account].to_s(',')
+          -#  %tr
+          -#    %td= account.full_name + ":Available (Inclusive)"
+          -#    %td.right= (@funds_info[:inclusive_balances][account]-@funds_info[:inclusive_promised_balances][account]).to_s(',')
+    
+          -#-unless @funds_info[:balances][account].zero? && @funds_info[:promised_balances][account].zero?
+          -#  %tr
+          -#    %td= account.full_name
+          -#    %td.right= @funds_info[:balances][account].to_s(',')
+          -#  -if !@funds_info[:promised_balances][account].zero?
+          -#    %tr
+          -#      %td= account.full_name + ":Promised"
+          -#      %td.right= @funds_info[:promised_balances][account].to_s(',')
+          -#  %tr
+          -#    %td= account.full_name + ":Available"
+          -#    %td.right= (@funds_info[:balances][account]-@funds_info[:promised_balances][account]).to_s(',')
+  .col-xs-2
