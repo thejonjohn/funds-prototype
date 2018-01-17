@@ -113,8 +113,6 @@ module ::Funds
     attr_reader :children
     attr_accessor :running_total
     attr_accessor :inclusive_running_total
-    attr_accessor :inclusive_running_promises
-    attr_accessor :running_promises
     attr_reader :register
     attr_reader :name
     attr_reader :parent
@@ -129,8 +127,6 @@ module ::Funds
       @running_total           = Amount[0]
       @inclusive_running_total = Amount[0]
 
-      @running_promises = Hash.new {|h,k| h[k] = Amount[0]} # @running_promises[promised_to_account] = amount_promised
-      @inclusive_running_promises = Hash.new {|h,k| h[k] = Amount[0]} # @inclusive_running_promises[promised_to_account] = amount_promised
       @full_name = nil
       @parents = nil
     end
@@ -179,31 +175,19 @@ module ::Funds
       return @full_name
     end
 
-    def inclusive_total_promised
-      return @inclusive_running_promises.values.inject(:+) || ::Funds::Amount[0]
-    end
-
-    def total_promised
-      return @running_promises.values.inject(:+) || ::Funds::Amount[0]
-    end
-
     def amount_available
-      @running_total - total_promised()
+      @running_total
     end
 
     def register_snapshot_info(other_accounts)
       leaf_accounts = ([self] | other_accounts)
       leaf_current_balances = Hash[leaf_accounts.map {|a| [a, a.running_total]}]
-      leaf_current_promised_balances = Hash[leaf_accounts.map {|a| [a, a.total_promised]}]
       inclusive_accounts = [self] | other_accounts | self.parents | other_accounts.map {|a| a.parents}.inject(:|)
       inclusive_current_balances = Hash[inclusive_accounts.map {|a| [a, a.inclusive_running_total]}]
-      inclusive_current_promised_balances = Hash[inclusive_accounts.map {|a| [a, a.inclusive_total_promised]}]
 
       result = {
         leaf_current_balances: leaf_current_balances,
-        leaf_current_promised_balances: leaf_current_promised_balances,
-        inclusive_current_balances: inclusive_current_balances,
-        inclusive_current_promised_balances: inclusive_current_promised_balances,
+        inclusive_current_balances: inclusive_current_balances
       }
       return result
     end
@@ -226,58 +210,6 @@ module ::Funds
       account.inclusive_running_total += amount
       account.parents.each {|p| p.inclusive_running_total += amount}
 
-      # attempt to resolve promises
-      # rules:
-      #   each descendant of this account that has a promise to the account being transferred to
-      #   should get a transfer from this account to itself and get its promise resolved (up
-      #   until the money involved in the transfer runs out)
-      #   but first, any negative promises (meaning credit card refund) should also be handled
-      
-      descendants = []
-      to_traverse = @children.values.clone
-      until to_traverse.empty?
-        current_descendant = to_traverse.shift
-        descendants.push current_descendant
-        to_traverse.push(*(current_descendant.children.values))
-      end
-
-      promise_participants = []
-
-      # look for negative promises
-      negative_promise_amount_to_account_for = ::Funds::Amount[0]
-      descendants.each do |current_descendant|
-        promise_amount = current_descendant.running_promises[account]
-        if promise_amount.negative?
-          if negative_promise_amount_to_account_for < amount
-            promise_participants.push(current_descendant)
-            amount_to_resolve = [-(amount + negative_promise_amount_to_account_for), promise_amount].max
-            negative_promise_amount_to_account_for += amount_to_resolve
-            current_descendant.transfer_to(date, self, amount_to_resolve, "PROMISED REFUND TRANSFER - #{current_descendant.full_name}")
-            current_descendant.running_promises[account] -= amount_to_resolve
-            current_descendant.inclusive_running_promises[account] -= amount_to_resolve
-          end
-        end
-      end
-
-      amount_left = ::Funds::Amount[amount] - negative_promise_amount_to_account_for
-      descendants.each do |current_descendant|
-        break if amount_left <= ::Funds::Amount[0]
-        if (amount_promised = current_descendant.running_promises[account]).positive?
-          promise_participants.push(current_descendant)
-          amount_to_resolve = [amount_left, amount_promised].min
-          current_descendant.transfer_to(date, self, amount_to_resolve, "PROMISED TRANSFER - #{current_descendant.full_name}")
-          current_descendant.running_promises[account] -= amount_to_resolve
-          current_descendant.inclusive_running_promises[account] -= amount_to_resolve
-          current_descendant.parents.each {|p| p.inclusive_running_promises[account] -= amount_to_resolve}
-        end
-      end
-
-      # to_traverse = @children.values.clone
-      # until to_traverse.empty? || amount_left <= ::Funds::Amount[0]
-      #   current_descendant = to_traverse.shift
-      #   to_traverse.push(*(current_descendant.children.values))
-      # end
-
       @register.push({
          type: :transfer,
          date: date,
@@ -286,7 +218,7 @@ module ::Funds
          amount: amount,
          payee: payee,
          comments: comments
-      }.merge(register_snapshot_info([account] | promise_participants)))
+      }.merge(register_snapshot_info([account])))
     end
 
     def process_transaction(transaction)
@@ -349,35 +281,6 @@ module ::Funds
       end
     end
 
-    def process_promise(promise)
-      date = promise[:date]
-      from_account =  self[promise[:from]]
-      to_account = self[promise[:to]]
-      amount = promise[:amount]
-      from_account.promise_to(date, to_account, amount)
-    end
-
-    def promise_to(date, account, amount)
-      unless account.kind_of?(self.class)
-        account = @root.find_or_create_child(account.to_s)
-      end
-      unless amount.kind_of?(::Funds::Amount)
-        amount = ::Funds::Amount[amount]
-      end
-
-      @running_promises[account] += amount
-      @inclusive_running_promises[account] += amount
-      self.parents.each {|p| p.inclusive_running_promises[account] += amount }
-
-      @register.push({
-         type: :promise,
-         date: date,
-         from_account: self,
-         to_account: account,
-         amount: amount
-      }.merge(register_snapshot_info([account])))
-    end
-
   end
 
 end
@@ -391,7 +294,7 @@ task :journal do |block|
     current_date = d.kind_of?(Date) ? d : Date.parse(d)
   end
 
-  transactions_and_promises = []
+  transactions = []
   task :transaction do |payee, block|
     raise "transaction with no date" if current_date.nil?
 
@@ -442,18 +345,7 @@ task :journal do |block|
     end
     raise "Ambiguous postings (multiple positive and multiple negative):\n#{postings.to_yaml}" if num_positive_postings > 1 && num_negative_postings > 1
 
-    transactions_and_promises.push({type: :transaction, date: current_date, postings: postings, payee: payee, comments: comments})
-  end
-
-  task :promise do |opts|
-    raise "promise with no date" if current_date.nil?
-    raise "promise syntax: 'promise from: <account>, to: <account>, amount: <amount>'" unless opts.kind_of?(Hash)
-
-    raise "promise with no 'from' field"   unless opts[:from]
-    raise "promise with no 'to' field"     unless opts[:to]
-    raise "promise with no 'amount' field" unless opts[:amount]
-
-    transactions_and_promises.push({type: :promise, date: current_date, from: opts[:from], to: opts[:to], amount: ::Funds::Amount[opts[:amount]]})
+    transactions.push({type: :transaction, date: current_date, postings: postings, payee: payee, comments: comments})
   end
 
   group_seen_rows = Hash.new {|h,k| h[k] = Set.new}
@@ -489,9 +381,9 @@ task :journal do |block|
       ext_account_block = block
     end
 
-    promise_block = nil
-    task :promise_info do |block|
-      promise_block = block
+    extra_transaction_block = nil
+    task :extra_transaction do |block|
+      extra_transaction_block = block
     end
   
     skip_if_blocks = []
@@ -564,9 +456,9 @@ task :journal do |block|
       vars[:amount] = vars[:amount].negate if negate_if_blocks.reduce(false) {|sum,current| sum || current.call(vars)}
       skip = skip_if_blocks.reduce(false) {|sum,current| sum || current.call(vars)}
 
-      promise_info = nil
-      unless promise_block.nil?
-        promise_info = promise_block.call(vars)
+      extra_transaction_info = nil
+      unless extra_transaction_block.nil?
+        extra_transaction_info = extra_transaction_block.call(vars)
       end
       unless skip
         date vars[:date]
@@ -577,8 +469,11 @@ task :journal do |block|
           posting account, vars[:amount]
           posting ext_account
         end
-        unless promise_info.nil?
-          promise promise_info
+        unless extra_transaction_info.nil?
+          transaction "Set aside for credit card payment (#{extra_transaction_info[:info]})" do
+            posting extra_transaction_info[:from]
+            posting extra_transaction_info[:to], extra_transaction_info[:amount]
+          end
         end
       end
     end
@@ -591,7 +486,7 @@ task :journal do |block|
   instance_exec(&block)
 
   # stable sort
-  transactions_and_promises = (transactions_and_promises.each_with_index.to_a.sort do |a_and_index, b_and_index|
+  transactions = (transactions.each_with_index.to_a.sort do |a_and_index, b_and_index|
     a, a_index = a_and_index[0], a_and_index[1]
     b, b_index = b_and_index[0], b_and_index[1]
     if a[:date] == b[:date]
@@ -601,12 +496,12 @@ task :journal do |block|
     end
   end).map {|arr| arr[0]}
 
-  #puts transactions_and_promises.to_yaml
+  #puts transactions.to_yaml
 
   register = []
   root = ::Funds::AccountNode.new('root', nil, nil, register)
 
-  transactions_and_promises.each do |tr|
+  transactions.each do |tr|
     if funds_options[:end_date] && funds_options[:end_date] <= tr[:date]
       break
     end
@@ -620,8 +515,6 @@ task :journal do |block|
         account = posting[:account]
         amount  = posting[:amount]
       end
-    when :promise
-      root.process_promise(tr)
     else
       raise "Unknown type: #{tr[:type]}"
     end
@@ -630,44 +523,21 @@ task :journal do |block|
 
   accounts = root.dfs_nodes
 
-  # accounts.each do |node|
-  #   if !node.leaf?
-  #     register.reverse_each do |entry|
-  #       if entry[:inclusive_current_balances].include?(node)
-  #         puts "#{node.full_name} (inclusive)\t#{entry[:inclusive_current_balances][node]}"
-  #         break
-  #       end
-  #     end
-  #   end
-  #   register.reverse_each do |entry|
-  #     if entry[:leaf_current_balances].include?(node)
-  #       puts "#{node.full_name}\t\t#{entry[:leaf_current_balances][node]}"
-  #       break
-  #     end
-  #   end
-  #   #puts node.full_name
-  # end
-
-
   balances = Hash.new
   inclusive_balances = Hash.new
-  promised_balances = Hash.new
-  inclusive_promised_balances = Hash.new
 
   accounts.each do |account|
-    # inclusive amounts and promises
+    # inclusive amounts
     if !account.leaf?
       found = false
       register.reverse_each do |entry|
         if (entry[:inclusive_current_balances].include?(account))
           inclusive_balances[account] = entry[:inclusive_current_balances][account]
-          inclusive_promised_balances[account] = entry[:inclusive_current_promised_balances][account]
           found = true
           break
         end
       end
       inclusive_balances[account] = ::Funds::Amount[0] if !found
-      inclusive_promised_balances[account] = ::Funds::Amount[0] if !found
     end
 
     # non-inclusive amounts
@@ -675,13 +545,11 @@ task :journal do |block|
     register.reverse_each do |entry|
       if (entry[:leaf_current_balances].include?(account))
         balances[account] = entry[:leaf_current_balances][account]
-        promised_balances[account] = entry[:leaf_current_promised_balances][account]
         found = true
         break
       end
     end
     balances[account] = ::Funds::Amount[0] if !found
-    promised_balances[account] = ::Funds::Amount[0] if !found
          
   end
 
@@ -690,9 +558,7 @@ task :journal do |block|
    register: register,
    accounts: accounts,
    balances: balances,
-   inclusive_balances: inclusive_balances,
-   promised_balances: promised_balances,
-   inclusive_promised_balances: inclusive_promised_balances
+   inclusive_balances: inclusive_balances
   }
 
 end
