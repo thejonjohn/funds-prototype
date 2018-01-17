@@ -10,12 +10,13 @@
           %th{style: 'width: 30%;'} Payee
           %th.right Transfer Amount
           %th.right Running Total
+          %th.right Inclusive Running Total
       %tbody
         -@funds_info[:register].reverse_each do |row|
           - next unless row[:type] == :transfer
           - account_filter = session[:account_filter] && !session[:account_filter].empty? ? session[:account_filter] : nil
-          - to_filter =   account_filter && !(row[:to_account].full_name).start_with?(account_filter)
-          - from_filter = account_filter && !(row[:from_account].full_name).start_with?(account_filter)
+          - to_filter =   account_filter && !(row[:to_account].full_name).match(/#{account_filter}/)
+          - from_filter = account_filter && !(row[:from_account].full_name).match(/#{account_filter}/)
           - unless to_filter
             %tr
               %td= date_pretty(row[:date])
@@ -23,6 +24,7 @@
               %td= row[:payee]
               %td.right= row[:amount].to_s(',')
               %td.right= row[:leaf_current_balances][row[:to_account]].to_s(',')
+              %td.right= row[:inclusive_current_balances][row[:to_account]].to_s(',')
           - unless from_filter
             %tr
               %td= date_pretty(row[:date])
@@ -30,3 +32,4 @@
               %td= row[:payee]
               %td.right= row[:amount].negate.to_s(',')
               %td.right= row[:leaf_current_balances][row[:from_account]].to_s(',')
+              %td.right= row[:inclusive_current_balances][row[:from_account]].to_s(',')

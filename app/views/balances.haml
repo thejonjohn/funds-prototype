@@ -15,7 +15,7 @@
       %tbody
         -@funds_info[:accounts].each do |account|
           - account_filter = session[:account_filter] && !session[:account_filter].empty? ? session[:account_filter] : nil
-          - next if account_filter && !account.full_name.start_with?(account_filter)
+          - next if account_filter && !account.full_name.match(/#{account_filter}/)
 
           -unless @funds_info[:balances][account].zero? && @funds_info[:promised_balances][account].zero?
             %tr

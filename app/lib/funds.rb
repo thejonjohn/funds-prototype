@@ -252,7 +252,7 @@ module ::Funds
             promise_participants.push(current_descendant)
             amount_to_resolve = [-(amount + negative_promise_amount_to_account_for), promise_amount].max
             negative_promise_amount_to_account_for += amount_to_resolve
-            current_descendant.transfer_to(date, self, amount_to_resolve, 'PROMISED REFUND TRANSFER')
+            current_descendant.transfer_to(date, self, amount_to_resolve, "PROMISED REFUND TRANSFER - #{current_descendant.full_name}")
             current_descendant.running_promises[account] -= amount_to_resolve
             current_descendant.inclusive_running_promises[account] -= amount_to_resolve
           end
@@ -265,7 +265,7 @@ module ::Funds
         if (amount_promised = current_descendant.running_promises[account]).positive?
           promise_participants.push(current_descendant)
           amount_to_resolve = [amount_left, amount_promised].min
-          current_descendant.transfer_to(date, self, amount_to_resolve, 'PROMISED TRANSFER')
+          current_descendant.transfer_to(date, self, amount_to_resolve, "PROMISED TRANSFER - #{current_descendant.full_name}")
           current_descendant.running_promises[account] -= amount_to_resolve
           current_descendant.inclusive_running_promises[account] -= amount_to_resolve
           current_descendant.parents.each {|p| p.inclusive_running_promises[account] -= amount_to_resolve}
