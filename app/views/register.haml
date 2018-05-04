@@ -14,6 +14,7 @@
       %tbody
         -@funds_info[:register].reverse_each do |row|
           - next unless row[:type] == :transfer
+          - next if row[:comments].include?('Set aside')
           - account_filter = session[:account_filter] && !session[:account_filter].empty? ? session[:account_filter] : nil
           - to_filter =   account_filter && !(row[:to_account].full_name).match(/#{account_filter}/)
           - from_filter = account_filter && !(row[:from_account].full_name).match(/#{account_filter}/)

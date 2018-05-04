@@ -471,6 +471,7 @@ task :journal do |block|
         end
         unless extra_transaction_info.nil?
           transaction "Set aside for credit card payment (#{extra_transaction_info[:info]})" do
+            comment "Set aside"
             posting extra_transaction_info[:from]
             posting extra_transaction_info[:to], extra_transaction_info[:amount]
           end
