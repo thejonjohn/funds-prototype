@@ -17,9 +17,11 @@
           -unless @funds_info[:balances][account].zero? && (@funds_info[:inclusive_balances][account].nil? || @funds_info[:inclusive_balances][account].zero?)
             %tr
               %td= account.full_name
-              %td.right= @funds_info[:balances][account].to_s(',')
+              - b = @funds_info[:balances][account].to_s(',')
+              %td.right{style: b.include?('-') ? 'color: red; font-weight: bold;' : ''}= b
               -if !account.leaf?
-                %td.right= @funds_info[:inclusive_balances][account].to_s(',')
+                - b = @funds_info[:inclusive_balances][account].to_s(',')
+                %td.right{style: b.include?('-') ? 'color: red; font-weight: bold;' : ''}= b
               -else
                 %td &nbsp;
                 -#%td &nbsp;
